@@ -125,10 +125,5 @@ class NoSQLBaseDocument(BaseModel, Generic[T], ABC):
             return []
 
     @classmethod
-    def get_collection_name(cls: Type[T]) -> str:
-        if not hasattr(cls, "Settings") or not hasattr(cls.Settings, "name"):
-            raise Exception(
-                "Document should define an Settings configuration class with the name of the collection."
-            )
-
-        return cls.Settings.name
+    def get_collection_name(cls):
+        return cls.__name__
