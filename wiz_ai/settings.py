@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # MongoDB database
     DATABASE_HOST: str = "mongodb://wiz-ai:wiz-ai@127.0.0.1:27017"
-    DATABASE_NAME: str = "wiz-ai-mongo2"
+    DATABASE_NAME: str = "wiz-ai-mongo"
 
     # Qdrant vector database
     USE_QDRANT_CLOUD: bool = False
