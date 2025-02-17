@@ -4,16 +4,14 @@ from typing import Any, Callable, Dict, Generic, Type, TypeVar
 from uuid import UUID
 
 import numpy as np
-from loguru import logger
+import logfire
 from pydantic import UUID4, BaseModel, Field
 from qdrant_client.http import exceptions
 from qdrant_client.http.models import Distance, VectorParams
 from qdrant_client.models import CollectionInfo, PointStruct, Record
 
-from llm_engineering.application.networks.embeddings import EmbeddingModelSingleton
-from llm_engineering.domain.exceptions import ImproperlyConfigured
-from llm_engineering.domain.types import DataCategory
-from llm_engineering.infrastructure.db.qdrant import connection
+from wiz_ai.networks.embeddings import EmbeddingModelSingleton
+from wiz_ai.connectors.qdrant import connection
 
 T = TypeVar("T", bound="VectorBaseDocument")
 
@@ -81,7 +79,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         try:
             cls._bulk_insert(documents)
         except exceptions.UnexpectedResponse:
-            logger.info(
+            logfire.info(
                 f"Collection '{cls.get_collection_name()}' does not exist. Trying to create the collection and reinsert the documents."
             )
 
@@ -90,7 +88,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
             try:
                 cls._bulk_insert(documents)
             except exceptions.UnexpectedResponse:
-                logger.error(f"Failed to insert documents in '{cls.get_collection_name()}'.")
+                logfire.error(f"Failed to insert documents in '{cls.get_collection_name()}'.")
 
                 return False
 
@@ -107,7 +105,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         try:
             documents, next_offset = cls._bulk_find(limit=limit, **kwargs)
         except exceptions.UnexpectedResponse:
-            logger.error(f"Failed to search documents in '{cls.get_collection_name()}'.")
+            logfire.error(f"Failed to search documents in '{cls.get_collection_name()}'.")
 
             documents, next_offset = [], None
 
@@ -139,7 +137,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         try:
             documents = cls._search(query_vector=query_vector, limit=limit, **kwargs)
         except exceptions.UnexpectedResponse:
-            logger.error(f"Failed to search documents in '{cls.get_collection_name()}'.")
+            logfire.error(f"Failed to search documents in '{cls.get_collection_name()}'.")
 
             documents = []
 
@@ -194,14 +192,8 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         return connection.create_collection(collection_name=collection_name, vectors_config=vectors_config)
 
     @classmethod
-    def get_category(cls: Type[T]) -> DataCategory:
-        if not hasattr(cls, "Config") or not hasattr(cls.Config, "category"):
-            raise ImproperlyConfigured(
-                "The class should define a Config class with"
-                "the 'category' property that reflects the collection's data category."
-            )
-
-        return cls.Config.category
+    def get_category(cls: Type[T]):
+        return cls.__name__
 
     @classmethod
     def get_collection_name(cls):
@@ -221,7 +213,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         return cls._group_by(documents, selector=lambda doc: doc.__class__)
 
     @classmethod
-    def group_by_category(cls: Type[T], documents: list[T]) -> Dict[DataCategory, list[T]]:
+    def group_by_category(cls: Type[T], documents: list[T]) -> Dict[str, list[T]]:
         return cls._group_by(documents, selector=lambda doc: doc.get_category())
 
     @classmethod
@@ -239,12 +231,8 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
     @classmethod
     def collection_name_to_class(cls: Type["VectorBaseDocument"], collection_name: str) -> type["VectorBaseDocument"]:
         for subclass in cls.__subclasses__():
-            try:
-                if subclass.get_collection_name() == collection_name:
-                    return subclass
-            except ImproperlyConfigured:
-                pass
-
+            if subclass.get_collection_name() == collection_name:
+                return subclass
             try:
                 return subclass.collection_name_to_class(collection_name)
             except ValueError:
