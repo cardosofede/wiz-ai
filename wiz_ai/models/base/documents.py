@@ -1,5 +1,5 @@
 import re
-from abc import ABC
+from typing import cast
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter, SentenceTransformersTokenTextSplitter
 from pydantic import UUID4, Field, BaseModel
@@ -11,7 +11,7 @@ from networks import EmbeddingModelSingleton
 embedding_model = EmbeddingModelSingleton()
 
 
-class BaseDocument(ABC, BaseModel):
+class BaseDocument(BaseModel):
     platform: str
     author_id: UUID4 = Field(alias="author_id")
     author_full_name: str = Field(alias="author_full_name")
@@ -30,7 +30,7 @@ class RawDocument(BaseDocument, NoSQLBaseDocument):
             platform=self.platform,
             author_id=self.author_id,
             author_full_name=self.author_full_name,
-            content=self.clean_text(" #### ".join(self.content.values())),
+            content=self.clean_text(" #### ".join([content for content in self.content.values() if content is not None])),
         )
 
 class CleanedDocument(BaseDocument, VectorBaseDocument):
@@ -80,6 +80,39 @@ class CleanedDocument(BaseDocument, VectorBaseDocument):
 
         return data_models_list
 
+    def embed_batch(self, data_model: list["Chunk"]) -> list["EmbeddedChunk"]:
+        embedding_model_input = [data_model.content for data_model in data_model]
+        embeddings = embedding_model(embedding_model_input, to_list=True)
+
+        embedded_chunk = [
+            self.map_model(data_model, cast(list[float], embedding))
+            for data_model, embedding in zip(data_model, embeddings, strict=False)
+        ]
+
+        return embedded_chunk
+
+    @staticmethod
+    def map_model(data_model: "Chunk", embedding: list[float]) -> "EmbeddedChunk":
+        return EmbeddedChunk(
+            id=data_model.id,
+            content=data_model.content,
+            embedding=embedding,
+            platform=data_model.platform,
+            document_id=data_model.document_id,
+            author_id=data_model.author_id,
+            author_full_name=data_model.author_full_name,
+            metadata={
+                "embedding_model_id": embedding_model.model_id,
+                "embedding_size": embedding_model.embedding_size,
+                "max_input_length": embedding_model.max_input_length,
+            },
+        )
+
+    def chunk_and_embed(self) -> list["EmbeddedChunk"]:
+        chunks = self.chunk()
+        return self.embed_batch(chunks)
+
+
 class Chunk(BaseDocument, VectorBaseDocument):
     content: str
     document_id: UUID4 = Field(alias="document_id")
@@ -88,6 +121,7 @@ class Chunk(BaseDocument, VectorBaseDocument):
 
 class EmbeddedChunk(BaseDocument, VectorBaseDocument):
     content: str
+    embedding: list[float] | None
     metadata: dict = Field(default_factory=dict)
 
     @classmethod
