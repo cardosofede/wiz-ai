@@ -11,13 +11,13 @@ from qdrant_client.http.models import Distance, VectorParams
 from qdrant_client.models import CollectionInfo, PointStruct, Record
 
 from wiz_ai.networks.embeddings import EmbeddingModelSingleton
-from wiz_ai.connectors.qdrant import connection
+from wiz_ai.connectors.qdrant import qdrant_connection
 
 T = TypeVar("T", bound="VectorBaseDocument")
 
 
 class VectorBaseDocument(BaseModel, Generic[T], ABC):
-    id: UUID4 = Field(default_factory=uuid.uuid4)
+    id: UUID = Field(default_factory=uuid.uuid4)
 
     def __eq__(self, value: object) -> bool:
         if not isinstance(value, self.__class__):
@@ -30,7 +30,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
 
     @classmethod
     def from_record(cls: Type[T], point: Record) -> T:
-        _id = UUID(point.id, version=4)
+        _id = UUID(point.id)
         payload = point.payload or {}
 
         attributes = {
@@ -98,7 +98,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
     def _bulk_insert(cls: Type[T], documents: list["VectorBaseDocument"]) -> None:
         points = [doc.to_point() for doc in documents]
 
-        connection.upsert(collection_name=cls.get_collection_name(), points=points)
+        qdrant_connection.upsert(collection_name=cls.get_collection_name(), points=points)
 
     @classmethod
     def bulk_find(cls: Type[T], limit: int = 10, **kwargs) -> tuple[list[T], UUID | None]:
@@ -118,7 +118,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         offset = kwargs.pop("offset", None)
         offset = str(offset) if offset else None
 
-        records, next_offset = connection.scroll(
+        records, next_offset = qdrant_connection.scroll(
             collection_name=collection_name,
             limit=limit,
             with_payload=kwargs.pop("with_payload", True),
@@ -128,7 +128,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         )
         documents = [cls.from_record(record) for record in records]
         if next_offset is not None:
-            next_offset = UUID(next_offset, version=4)
+            next_offset = UUID(next_offset)
 
         return documents, next_offset
 
@@ -146,7 +146,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
     @classmethod
     def _search(cls: Type[T], query_vector: list, limit: int = 10, **kwargs) -> list[T]:
         collection_name = cls.get_collection_name()
-        records = connection.search(
+        records = qdrant_connection.search(
             collection_name=collection_name,
             query_vector=query_vector,
             limit=limit,
@@ -163,7 +163,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         collection_name = cls.get_collection_name()
 
         try:
-            return connection.get_collection(collection_name=collection_name)
+            return qdrant_connection.get_collection(collection_name=collection_name)
         except exceptions.UnexpectedResponse:
             use_vector_index = cls.get_use_vector_index()
 
@@ -173,7 +173,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
             if collection_created is False:
                 raise RuntimeError(f"Couldn't create collection {collection_name}") from None
 
-            return connection.get_collection(collection_name=collection_name)
+            return qdrant_connection.get_collection(collection_name=collection_name)
 
     @classmethod
     def create_collection(cls: Type[T]) -> bool:
@@ -189,7 +189,7 @@ class VectorBaseDocument(BaseModel, Generic[T], ABC):
         else:
             vectors_config = {}
 
-        return connection.create_collection(collection_name=collection_name, vectors_config=vectors_config)
+        return qdrant_connection.create_collection(collection_name=collection_name, vectors_config=vectors_config)
 
     @classmethod
     def get_category(cls: Type[T]):
