@@ -1,12 +1,21 @@
-from datetime import datetime
+import logfire
 from enum import Enum
 from typing import List, Optional, Set
+import hashlib
+import uuid
+from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, UUID4
+from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 
+from models.base.vector_base import VectorBaseDocument
 from settings import settings
 from wiz_ai.models.base.notion_base import NotionBaseDocument
+from wiz_ai.models.base.documents import ChunkingMixin, EmbeddedChunk
+from wiz_ai.networks import EmbeddingModelSingleton
+from wiz_ai.connectors.qdrant import qdrant_connection
 
+embedding_model = EmbeddingModelSingleton()
 
 class DocumentCategory(str, Enum):
     INSTALLATION = "Installation"
@@ -20,7 +29,83 @@ class DocumentStatus(str, Enum):
     DRAFT = "Draft"
 
 
-class KnowledgeBaseDocument(NotionBaseDocument):
+class NotionKnowledgeVectorDocument(VectorBaseDocument):
+    """A vector document ready for embedding and storage in vector database."""
+    content: str
+    metadata: dict
+    document_id: UUID4
+    platform: str = "notion"
+    author: str
+    embedding: List[float]
+
+    def __init__(self, **data):
+        # Generate deterministic ID based on document_id and content
+        if 'document_id' in data and 'content' in data:
+            # Create a namespace UUID from the document_id
+            namespace = uuid.UUID(str(data['document_id']))
+            # Create a deterministic name by hashing the content
+            content_hash = hashlib.md5(data['content'].encode()).hexdigest()
+            # Create a deterministic UUID5 using namespace and content hash
+            data['id'] = uuid.uuid5(namespace, content_hash)
+        
+        # Get embedding before initializing
+        if 'content' in data and 'embedding' not in data:
+            data['embedding'] = embedding_model([data['content']], to_list=True)[0]
+        
+        super().__init__(**data)
+
+    @classmethod
+    def from_record(cls, point):
+        """Convert a Qdrant record back to a NotionKnowledgeVectorDocument."""
+        payload = point.payload or {}
+        
+        # Extract metadata from payload
+        metadata = payload.pop('metadata', {})
+        
+        # Create document with all necessary fields
+        return cls(
+            id=UUID(point.id),
+            content=payload.get('content', ''),
+            document_id=UUID(payload.get('document_id')),
+            platform=payload.get('platform', 'notion'),
+            author=payload.get('author', 'Unknown'),
+            metadata=metadata,
+            embedding=point.vector if point.vector else []
+        )
+
+    @classmethod
+    def get_collection_name(cls):
+        return "knowledge_base"
+
+    @classmethod
+    def delete_by_notion_id(cls, notion_id: str) -> None:
+        """Delete all vectors belonging to a specific Notion document."""
+        filter_condition = Filter(
+            must=[
+                FieldCondition(
+                    key="metadata.notion_id",
+                    match=MatchValue(value=notion_id)
+                )
+            ]
+        )
+        
+        # First find all matching documents to verify they exist
+        matching_docs = cls.search(
+            query_vector=[0] * embedding_model.embedding_size,  # Dummy vector for search
+            query_filter=filter_condition,
+            limit=1000  # High limit to get all chunks
+        )
+        
+        if matching_docs:
+            qdrant_connection.delete(
+                collection_name=cls.get_collection_name(),
+                points_selector=filter_condition
+            )
+            logfire.info(f"Deleted {len(matching_docs)} vectors for Notion document {notion_id}")
+        else:
+            logfire.info(f"No existing vectors found for Notion document {notion_id}")
+
+class KnowledgeBaseDocument(NotionBaseDocument, ChunkingMixin):
     database_id: str = settings.KNOWLEDGE_BASE_DB_ID  # Knowledge Base database ID
     
     title: str
@@ -153,4 +238,67 @@ class KnowledgeBaseDocument(NotionBaseDocument):
                     }
                 })
 
-        return notion_filter if notion_filter["and"] else {} 
+        return notion_filter if notion_filter["and"] else {}
+
+    def to_vector_documents(self, chunk_size: int = 1000) -> List[NotionKnowledgeVectorDocument]:
+        """Convert this document into a list of vector documents ready for embedding."""
+        chunks = []
+        current_chunk = []
+        current_size = 0
+        
+        # Start with title and summary
+        header = f"# {self.title}\n\n{self.summary}\n\n"
+        current_chunk.append(header)
+        current_size = len(header)
+        
+        if not self.content:
+            # If no content, just return the header as one chunk
+            return [self._create_vector_doc("".join(current_chunk))]
+            
+        # Split content by headers and dividers
+        lines = self.content.split('\n')
+        
+        for line in lines:
+            # Check if line is a header or divider
+            is_separator = line.startswith('#') or line.strip() == '---'
+            line_with_newline = line + '\n'
+            line_size = len(line_with_newline)
+            
+            if is_separator and current_chunk and (current_size + line_size > chunk_size):
+                # If we hit a separator and current chunk would be too big, start new chunk
+                chunks.append(self._create_vector_doc("".join(current_chunk)))
+                current_chunk = []
+                current_size = 0
+            
+            current_chunk.append(line_with_newline)
+            current_size += line_size
+            
+            # If chunk size exceeded, create new chunk
+            if current_size >= chunk_size:
+                chunks.append(self._create_vector_doc("".join(current_chunk)))
+                current_chunk = []
+                current_size = 0
+        
+        # Add remaining content as final chunk
+        if current_chunk:
+            chunks.append(self._create_vector_doc("".join(current_chunk)))
+        
+        return chunks
+
+    def _create_vector_doc(self, content: str) -> NotionKnowledgeVectorDocument:
+        """Helper method to create a vector document with metadata."""
+        return NotionKnowledgeVectorDocument(
+            content=content.strip(),
+            document_id=self.id,
+            author=self.author if self.author else "Unknown",
+            metadata={
+                "notion_id": self.notion_id,
+                "title": self.title,
+                "categories": [cat.value for cat in self.categories],
+                "status": self.status.value,
+                "deprecated": self.deprecated,
+            }
+        )
+
+
+
