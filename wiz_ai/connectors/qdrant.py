@@ -40,4 +40,4 @@ class QdrantDatabaseConnector:
         return cls._instance
 
 
-connection = QdrantDatabaseConnector()
+qdrant_connection = QdrantDatabaseConnector()

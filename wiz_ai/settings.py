@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     LINKEDIN_USERNAME: str | None = None
     LINKEDIN_PASSWORD: str | None = None
     LOGFIRE_TOKEN: str | None = None
+    NOTION_TOKEN: str | None = None
+    KNOWLEDGE_BASE_DB_ID: str | None = None
 
     @property
     def OPENAI_MAX_TOKEN_WINDOW(self) -> int:
