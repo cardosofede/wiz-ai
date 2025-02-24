@@ -24,6 +24,7 @@ dependencies = [
     "langchain>=0.3.19",
     "langchain-community>=0.3.17",
     "notion-client>=2.3.0",
+    "discord-py>=2.5.0",
 ]
 
 [tool.hatch.build.targets.wheel]
