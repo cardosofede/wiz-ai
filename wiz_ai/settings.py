@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     OPENAI_MODEL_ID: str = "gpt-4o-mini"
     OPENAI_API_KEY: str | None = None
 
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL_ID: str = "google-gla:gemini-1.5-flash"
+
     # Huggingface API
     HUGGINGFACE_ACCESS_TOKEN: str | None = None
 
@@ -67,6 +70,9 @@ class Settings(BaseSettings):
     LOGFIRE_TOKEN: str | None = None
     NOTION_TOKEN: str | None = None
     KNOWLEDGE_BASE_DB_ID: str | None = None
+    MAIN_DISCORD_TOKEN: str | None = None
+    MAIN_CHANNEL_IDS: str | None = None
+    SUPPORT_TEAM_MEMBERS: str | None = None  # Comma-separated list of Discord user IDs for support team
 
     @property
     def OPENAI_MAX_TOKEN_WINDOW(self) -> int:
