@@ -50,7 +50,7 @@ class Conversation(BaseModel):
     state: State
     channel_id: int
     last_activity: datetime = Field(default_factory=datetime.now)
-    problems_summary: str
+    problems_summary: Optional[str] = None
 
     def add_message(self, content: str, author_id: int, is_bot: bool, attachments: List[discord.Attachment] = None):
         message_attachments = []
