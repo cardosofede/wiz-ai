@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Tuple
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.usage import UsageLimits
 
@@ -11,16 +11,14 @@ from wiz_ai.settings import settings
 class ConversationContext:
     """State for the installation agent conversation."""
     current_message: str
-    problem_descriptions: List[str] = field(default_factory=list)
-    problem_statuses: List[str] = field(default_factory=list)
+    conversation_summary: str = ""  # Summary of the conversation so far
     retrieved_docs: List[KnowledgeBaseDocument] = field(default_factory=list)
 
 @dataclass
 class InstallationResponse:
     """Structured response from the installation agent."""
     response: str
-    problem_descriptions: List[str]
-    problem_statuses: List[str]
+    conversation_summary: str  # Updated summary including the current interaction
 
 installation_agent = Agent(
     model=settings.GEMINI_MODEL_ID,
@@ -30,15 +28,9 @@ installation_agent = Agent(
         "You have access to relevant documentation through the retrieve_docs tool. "
         "Follow these guidelines:\n"
         "1. First, use retrieve_docs to find relevant documentation for the user's query\n"
-        "2. Analyze if this is a new problem or related to existing problems\n"
-        "3. Provide clear, step-by-step instructions based on the documentation\n"
-        "4. Update the problems list with new information\n"
-        "5. If a problem is solved, mark its status as 'resolved'\n"
-        "6. Always suggest next steps if the current solution doesn't work\n\n"
-        "For each problem, provide two parallel lists:\n"
-        "- problem_descriptions: List of problem descriptions\n"
-        "- problem_statuses: List of corresponding statuses ('pending'/'in_progress'/'resolved')\n"
-        "The lists must have the same length, where each index represents one problem."
+        "2. Provide clear, step-by-step instructions based on the documentation\n"
+        "3. Keep track of the conversation by maintaining a brief summary\n"
+        "4. Always suggest next steps if needed"
     ),
     result_type=InstallationResponse,
     deps_type=ConversationContext
@@ -53,42 +45,20 @@ async def retrieve_docs(ctx: RunContext[ConversationContext], query: str) -> Lis
     ctx.retrieved_docs = docs
     return [doc.content for doc in docs]
 
-def convert_to_dict_format(descriptions: List[str], statuses: List[str]) -> Dict[str, Dict[str, str]]:
-    """Convert parallel lists to the dictionary format expected by the Discord bot."""
-    return {
-        f"problem_{i}": {"description": desc, "status": status}
-        for i, (desc, status) in enumerate(zip(descriptions, statuses))
-    }
-
-async def process_message(message_content: str, problems_summary: Optional[Dict[str, Dict[str, str]]] = None) -> Tuple[str, Dict[str, Dict[str, str]]]:
+async def process_message(message_content: str, previous_summary: Optional[str] = None) -> Tuple[str, str]:
     """Process a new message and generate a response using the installation agent."""
-    # Convert existing problems from dict format to parallel lists
-    current_descriptions = []
-    current_statuses = []
-    if problems_summary:
-        for problem in problems_summary.values():
-            current_descriptions.append(problem["description"])
-            current_statuses.append(problem["status"])
-    
     context = ConversationContext(
         current_message=message_content,
-        problem_descriptions=current_descriptions,
-        problem_statuses=current_statuses
+        conversation_summary=previous_summary or ""
     )
     
-    # Format the input to include problems context
-    problems_context = ""
-    if current_descriptions:
-        problems_list = "\n".join(
-            f"- {desc} (Status: {status})"
-            for desc, status in zip(current_descriptions, current_statuses)
-        )
-        problems_context = f"""Previous installation problems:
-{problems_list}
+    # Format input with previous summary if it exists
+    input_text = message_content
+    if previous_summary:
+        input_text = f"""Previous conversation summary:
+{previous_summary}
 
-"""
-    
-    input_text = f"""{problems_context}Current question:
+Current question:
 {message_content}"""
     
     result = await installation_agent.run(
@@ -97,10 +67,4 @@ async def process_message(message_content: str, problems_summary: Optional[Dict[
         usage_limits=UsageLimits(request_limit=2, total_tokens_limit=2000)
     )
     
-    # Convert the response back to the dictionary format
-    updated_problems = convert_to_dict_format(
-        result.data.problem_descriptions,
-        result.data.problem_statuses
-    )
-    
-    return result.data.response, updated_problems 
+    return result.data.response, result.data.conversation_summary 

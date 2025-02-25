@@ -50,7 +50,7 @@ class Conversation(BaseModel):
     state: State
     channel_id: int
     last_activity: datetime = Field(default_factory=datetime.now)
-    problems_summary: Dict[str, Dict[str, str]] = Field(default_factory=dict)  # Simplified problem structure
+    problems_summary: str
 
     def add_message(self, content: str, author_id: int, is_bot: bool, attachments: List[discord.Attachment] = None):
         message_attachments = []
@@ -174,14 +174,12 @@ async def on_message(message):
         )
         
         # Process message and get structured response
-        response_text, updated_problems = await process_message(
+        response_text, updated_problems_summary = await process_message(
             message_content=message.content,
-            problems_summary=conv.problems_summary
+            previous_summary=conv.problems_summary
         )
         
-        # Update conversation with new problems summary
-        conv.problems_summary = updated_problems
-        
+        conv.problems_summary = updated_problems_summary
         # Add bot response to conversation
         conv.add_message(
             content=response_text,
@@ -191,17 +189,14 @@ async def on_message(message):
         )
 
         # Create response embed with problem summary if available
-        embed = None
-        if updated_problems:
-            embed = discord.Embed(title="Installation Progress", color=discord.Color.blue())
-            for problem_id, details in updated_problems.items():
-                status = details['status']
-                status_emoji = "✅" if status == "resolved" else "🔄" if status == "in_progress" else "⏳"
-                embed.add_field(
-                    name=f"{status_emoji} {problem_id}",
-                    value=f"{details['description']}\nStatus: {status}",
-                    inline=False
-                )
+        embed = discord.Embed(title="Useful links", color=discord.Color.blue())
+        embed.add_field(
+            name="Documentation",
+            value="[Installation via Docker](https://hummingbot.org/installation/docker/)\n"
+                  "[Installation via Source](https://hummingbot.io/installation/source/)",
+            inline=False
+        )
+        embed.set_footer(text="Use the button below to mark the conversation as solved.")
 
         # Send response with conversation view and embed
         view = ConversationView(conv)
