@@ -8,8 +8,8 @@ from uuid import UUID
 from pydantic import Field, UUID4
 from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 
-from models.base.vector_base import VectorBaseDocument
-from settings import settings
+from wiz_ai.models.base.vector_base import VectorBaseDocument
+from wiz_ai.settings import settings
 from wiz_ai.models.base.notion_base import NotionBaseDocument
 from wiz_ai.models.base.documents import ChunkingMixin, EmbeddedChunk
 from wiz_ai.networks import EmbeddingModelSingleton

@@ -5,9 +5,9 @@ from typing import cast
 from langchain_text_splitters import RecursiveCharacterTextSplitter, SentenceTransformersTokenTextSplitter
 from pydantic import UUID4, Field, BaseModel
 
-from models.base.nosql_base import NoSQLBaseDocument
-from models.base.vector_base import VectorBaseDocument
-from networks import EmbeddingModelSingleton
+from wiz_ai.models.base.nosql_base import NoSQLBaseDocument
+from wiz_ai.models.base.vector_base import VectorBaseDocument
+from wiz_ai.networks import EmbeddingModelSingleton
 
 
 class BaseDocument(BaseModel):
@@ -44,17 +44,28 @@ class ChunkingMixin:
         }
 
     def chunk_text(self, text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> list[str]:
-        character_splitter = RecursiveCharacterTextSplitter(separators=["\n\n"], chunk_size=chunk_size, chunk_overlap=0)
-        text_split_by_characters = character_splitter.split_text(text)
+        # First split by markdown section separators
+        character_splitter = RecursiveCharacterTextSplitter(
+            separators=["---\n", "---\r\n", "\n---\n", "\r\n---\r\n"],  # Various forms of markdown section separators
+            chunk_size=chunk_size * 10,  # Larger chunk size to keep sections together
+            chunk_overlap=0  # No overlap for sections
+        )
+        text_split_by_sections = character_splitter.split_text(text)
 
+        # Then use token splitter only if sections are too large
         token_splitter = SentenceTransformersTokenTextSplitter(
             chunk_overlap=chunk_overlap,
             tokens_per_chunk=self.embedding_model.max_input_length,
             model_name=self.embedding_model.model_id,
         )
+        
         chunks_by_tokens = []
-        for section in text_split_by_characters:
-            chunks_by_tokens.extend(token_splitter.split_text(section))
+        for section in text_split_by_sections:
+            # Only split section if it exceeds the token limit
+            if len(section.split()) > self.embedding_model.max_input_length:
+                chunks_by_tokens.extend(token_splitter.split_text(section))
+            else:
+                chunks_by_tokens.append(section)
 
         return chunks_by_tokens
 
