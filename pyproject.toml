@@ -32,6 +32,8 @@ dependencies = [
     "langchain-core>=0.3.41",
     "langchain-qdrant>=0.2.0",
     "langchain-huggingface>=0.1.2",
+    "langgraph-api>=0.0.28",
+    "langgraph-cli>=0.1.76",
 ]
 
 [tool.hatch.build.targets.wheel]
