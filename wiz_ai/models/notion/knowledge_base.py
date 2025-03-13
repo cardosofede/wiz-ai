@@ -31,7 +31,7 @@ class DocumentStatus(str, Enum):
 
 class NotionKnowledgeVectorDocument(VectorBaseDocument):
     """A vector document ready for embedding and storage in vector database."""
-    content: str
+    page_content: str
     metadata: dict
     document_id: UUID4
     platform: str = "notion"
@@ -40,17 +40,17 @@ class NotionKnowledgeVectorDocument(VectorBaseDocument):
 
     def __init__(self, **data):
         # Generate deterministic ID based on document_id and content
-        if 'document_id' in data and 'content' in data:
+        if 'document_id' in data and 'page_content' in data:
             # Create a namespace UUID from the document_id
             namespace = uuid.UUID(str(data['document_id']))
             # Create a deterministic name by hashing the content
-            content_hash = hashlib.md5(data['content'].encode()).hexdigest()
+            content_hash = hashlib.md5(data['page_content'].encode()).hexdigest()
             # Create a deterministic UUID5 using namespace and content hash
             data['id'] = uuid.uuid5(namespace, content_hash)
         
         # Get embedding before initializing
-        if 'content' in data and 'embedding' not in data:
-            data['embedding'] = embedding_model([data['content']], to_list=True)[0]
+        if 'page_content' in data and 'embedding' not in data:
+            data['embedding'] = embedding_model([data['page_content']], to_list=True)[0]
         
         super().__init__(**data)
 
@@ -65,7 +65,7 @@ class NotionKnowledgeVectorDocument(VectorBaseDocument):
         # Create document with all necessary fields
         return cls(
             id=UUID(point.id),
-            content=payload.get('content', ''),
+            page_content=payload.get('page_content', ''),
             document_id=UUID(payload.get('document_id')),
             platform=payload.get('platform', 'notion'),
             author=payload.get('author', 'Unknown'),
@@ -288,7 +288,7 @@ class KnowledgeBaseDocument(NotionBaseDocument, ChunkingMixin):
     def _create_vector_doc(self, content: str) -> NotionKnowledgeVectorDocument:
         """Helper method to create a vector document with metadata."""
         return NotionKnowledgeVectorDocument(
-            content=content.strip(),
+            page_content=content.strip(),
             document_id=self.id,
             author=self.author if self.author else "Unknown",
             metadata={
