@@ -167,7 +167,7 @@ async def on_message(message):
 
         # Add user message to conversation
         conv.add_message(
-            content=message.content,
+            content=message.page_content,
             author_id=message.author.id,
             is_bot=False,
             attachments=message.attachments
@@ -175,7 +175,7 @@ async def on_message(message):
         
         # Process message and get structured response
         response_text, updated_problems_summary = await process_message(
-            message_content=message.content,
+            message_content=message.page_content,
             previous_summary=conv.problems_summary
         )
         
