@@ -43,6 +43,7 @@ class Estado(TypedDict):
     eventos_adversos: Annotated[List[EventoAdverso], operator.add] = Field(default_factory=list)  # Lista de eventos adversos detectados
     nivel_riesgo: str = Field(default=f"{NivelRiesgo.BAJO.value} - Evaluación inicial")  # Nivel de riesgo general del paciente
     resultado_formateado: Optional[str] = Field(default="")  # Resultado formateado para mostrar
+    elementos_facturables: Annotated[List[str], operator.add] = Field(default_factory=list)
 
 # Modelos para structured output
 class DeteccionEventoCompleto(BaseModel):
@@ -54,6 +55,9 @@ class DeteccionEventoCompleto(BaseModel):
 class ResumenEvolucion(BaseModel):
     resumen: str = Field(description="Resumen actualizado de la evolución del paciente")
     recomendaciones: List[str] = Field(description="Recomendaciones principales")
+
+class ElementosFacturables(BaseModel):
+    elementos_detectados: List[str] = Field(description="Lista de elementos facturables detectados en la revisión")
 
 # Definiciones de los tipos de eventos
 DEFINICIONES_EVENTOS = """
@@ -99,6 +103,14 @@ REGLA DE CLASIFICACIÓN DE RIESGO:
 La presencia de estos puntos se clasificará como internación de riesgo. De presentar más de uno o un evento Centinela de muy alto riesgo.
 """
 
+ELEMENTOS_FACTURABLES = """
+ELEMENTOS FACTURABLES:
+- SUERO
+- CIRUGIA AMBULATORIA
+- INYECCION INTRAMUSCULAR
+- VITAMINA B12
+"""
+
 def detectar_y_clasificar_evento(state):
     """Detecta y clasifica eventos adversos en la revisión médica actual"""
     revision = state["revision_actual"]
@@ -139,6 +151,34 @@ Si no detectás ningún evento, respondé con evento_detectado: false.
     return {
         "eventos_adversos": [nuevo_evento],
         "revisiones_historicas": [state["revision_actual"]]
+    }
+
+def detectar_elemento_facturable(state):
+    """Detecta elementos facturables en la revisión médica actual"""
+    revision = state["revision_actual"]
+    
+    # Crear un parser para la salida estructurada
+    parser = JsonOutputParser(pydantic_object=ElementosFacturables)
+    
+    prompt = f"""Analizá la siguiente revisión médica para detectar elementos facturables:
+    
+{ELEMENTOS_FACTURABLES}
+    
+REVISION MÉDICA:
+{revision}
+
+Identificá únicamente los elementos facturables mencionados explícitamente o que se deduzcan de los procedimientos descritos.
+Si no hay elementos facturables, devolvé una lista vacía.
+
+{parser.get_format_instructions()}
+"""
+    
+    # Obtener respuesta estructurada
+    respuesta_chain = llm.with_structured_output(ElementosFacturables)
+    resultado = respuesta_chain.invoke(prompt)
+    
+    return {
+        "elementos_facturables": resultado.elementos_detectados
     }
 
 def determinar_nivel_riesgo(state):
@@ -247,6 +287,7 @@ def formatear_resultado(state):
     resumen_evolucion = state.get("resumen_evolucion", "No hay resumen disponible")
     eventos_adversos = state.get("eventos_adversos", [])
     nivel_riesgo = state.get("nivel_riesgo", f"{NivelRiesgo.BAJO.value} - Sin clasificación")
+    elementos_facturables = state.get("elementos_facturables", [])
     
     # Contar eventos por tipo
     conteo_por_tipo = {}
@@ -271,6 +312,17 @@ EVENTOS ADVERSOS DETECTADOS ({len(eventos_adversos)}):
             resultado += f"\n{i+1}. {evento['tipo']} - {evento['descripcion'][:150]}..."
     else:
         resultado += "\nNo se han detectado eventos adversos hasta el momento."
+    
+    resultado += f"""
+
+ELEMENTOS FACTURABLES ({len(elementos_facturables)}):
+"""
+    
+    if elementos_facturables:
+        for i, elemento in enumerate(elementos_facturables):
+            resultado += f"\n{i+1}. {elemento}"
+    else:
+        resultado += "\nNo se han detectado elementos facturables en esta revisión."
         
     resultado += f"""
 
@@ -290,13 +342,16 @@ builder = StateGraph(Estado)
 
 # Agregamos los nodos
 builder.add_node("detectar_y_clasificar_evento", detectar_y_clasificar_evento)
+builder.add_node("detectar_elemento_facturable", detectar_elemento_facturable)
 builder.add_node("determinar_nivel_riesgo", determinar_nivel_riesgo)
 builder.add_node("generar_resumen_evolucion", generar_resumen_evolucion)
 builder.add_node("formatear_resultado", formatear_resultado)
 
 # Definimos el flujo
 builder.add_edge(START, "detectar_y_clasificar_evento")
+builder.add_edge(START, "detectar_elemento_facturable")
 builder.add_edge("detectar_y_clasificar_evento", "determinar_nivel_riesgo")
+builder.add_edge("detectar_elemento_facturable", "determinar_nivel_riesgo")
 builder.add_edge("determinar_nivel_riesgo", "generar_resumen_evolucion")
 builder.add_edge("generar_resumen_evolucion", "formatear_resultado")
 builder.add_edge("formatear_resultado", END)
@@ -325,6 +380,7 @@ def procesar_nueva_revision(estado_actual, nueva_revision):
             "eventos_adversos": [],
             "nivel_riesgo": f"{NivelRiesgo.BAJO.value} - Evaluación inicial",
             "resultado_formateado": "",
+            "elementos_facturables": [],
         }
     else:
         # Continuar con un caso existente
@@ -335,6 +391,7 @@ def procesar_nueva_revision(estado_actual, nueva_revision):
             "eventos_adversos": estado_actual.get("eventos_adversos", []),
             "nivel_riesgo": estado_actual.get("nivel_riesgo", f"{NivelRiesgo.BAJO.value} - Sin clasificación"),
             "resultado_formateado": estado_actual.get("resultado_formateado", ""),
+            "elementos_facturables": estado_actual.get("elementos_facturables", []),
         }
     
     # Ejecutar el grafo
