@@ -3,8 +3,8 @@ from typing import List, Optional, Dict, Tuple
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.usage import UsageLimits
 
-from models.notion.knowledge_base import KnowledgeBaseDocument, NotionKnowledgeVectorDocument
-from networks import EmbeddingModelSingleton
+from wiz_ai.models.notion.knowledge_base import KnowledgeBaseDocument, NotionKnowledgeVectorDocument
+from wiz_ai.networks import EmbeddingModelSingleton
 from wiz_ai.settings import settings
 
 @dataclass
@@ -26,6 +26,7 @@ installation_agent = Agent(
     model=settings.GEMINI_MODEL_ID,
     system_prompt=(
         "You are a helpful assistant that helps Hummingbot users install and run the software. "
+        "Always provide the specific commands (like `docker compose up -d`) in fenced code blocks if mentioned in the retrieved docs. "
         "You have access to relevant documentation through the retrieve_docs tool. "
         "Follow these guidelines:\n"
         "1. First, use retrieve_docs to find relevant documentation for the user's query\n"

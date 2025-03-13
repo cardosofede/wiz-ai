@@ -208,4 +208,20 @@ async def on_message(message):
         await message.channel.send(response_text, view=view, embed=embed)
 
 # -------------------- Start the Main Bot --------------------
-bot.run(settings.MAIN_DISCORD_TOKEN)
+async def main():
+    try:
+        async with bot:
+            await bot.start(settings.MAIN_DISCORD_TOKEN)
+    except discord.LoginFailure:
+        logfire.error("Failed to log in: Invalid token")
+    except discord.ConnectionClosed:
+        logfire.error("Connection closed unexpectedly")
+    except Exception as e:
+        logfire.error(f"An error occurred: {e}")
+    finally:
+        if not bot.is_closed():
+            await bot.close()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
